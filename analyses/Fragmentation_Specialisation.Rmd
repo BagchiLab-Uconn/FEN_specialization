@@ -1,0 +1,1332 @@
+---
+title: "Fragmentation effects on Specialists"
+author: "James Mickley & Robert Bagchi"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+graphics: yes
+output:
+  pdf_document:
+    toc: yes
+  html_document:
+    keep_md: yes
+    theme: readable
+    mathjax: default
+  html_notebook:
+    code_folding: hide
+    theme: readable
+    mathjax: default
+  github_document:
+    toc: yes
+    toc_depth: 5
+    pandoc_args: --webtex
+header-includes:
+  \usepackage{float}
+  \floatplacement{figure}{H}
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include = F}
+# @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+# @@@@@ Knitr Options
+# @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+# Set root directory to the project directory
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+
+
+# Set default knitr options: 
+# Suppress warnings and messages, cache chunks, 
+#  set default figure size to 6x8 at 300 dpi, and save a png and pdf
+knitr::opts_chunk$set(warning = F, message = F, collapse = T, cache = T,
+    fig.height = 6, fig.width = 8, dpi = 300, # 6x8" @ 300dpi:1800x2400=4.3MP
+    dev = c('png', 'pdf'), dev.args = list(pdf = list(onefile = F)))
+
+```
+
+```{r packages, include = F, cache = F, message = FALSE}
+
+# @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+# @@@@@ Setup - This code is run, but output is hidden
+# @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+# Load Packages
+#library(Matrix)
+library(tidyverse) # Needed for data wrangling: dplyr, tidyr, ggplot2
+library(magrittr) # provides assignment pipe
+library(patchwork) # for combining plots
+library(ggdist)
+library(GGally)
+library(ggh4x)
+library(ggrepel) # non-overlapping labels on plots
+library(vegan) # ordinations
+library(ggvegan)
+library(glmmTMB)# Needed for betabinomial models (overdispersed)
+library(gamm4)
+library(sjPlot) # Needed for plotting regression models with plot_model()
+library(performance) # Needed for R squared
+library(DHARMa)
+library(broom.mixed) # Needed for augment()
+library(knitr) # Needed for kable()
+library(car) # Needed for Anova()
+library(ggeffects)
+library(tidytext)
+```
+
+# Read in datasets
+
+```{r datasets, include = F, cache = F}
+catdata <- read.csv("data/catsurveys.csv", stringsAsFactors = TRUE)
+
+# Get the sites data
+sites <- read.csv("data/sites.csv", stringsAsFactors = TRUE)
+
+# Get the species data
+species <- read.csv("data/species.csv", stringsAsFactors = FALSE)
+species_expert <- read.csv("data/diet_categorization_June2023_RB.csv", stringsAsFactors = FALSE)
+
+# Read in the model to predict # of leaves from branch measurements
+branch.model <- readRDS("data/branchmeasure-model.rds")
+
+# Read in the model to predict leaf area from tree species
+area.model <- readRDS("data/leafarea-model.rds")
+
+# Vegetation data from plots
+vegdata <- read_csv("data/vegplots.csv")
+
+deer_browse <- read_csv("data/deerbrowsedata.csv")
+
+deer_abund <- read_csv("data/deerabunddat.csv")
+
+```
+
+# Data wrangling
+
+Steps:
+
+1.  Clean up species names of vegetation data.
+
+2. Add information on which ring vegetation plots are from.
+
+3. Calculate indices of deer pressure (deer captures, browse intensity and 
+scat density).
+
+4. Add in data on host leaf area examined
+
+Note, I set the minimum abundance here as 3 because intial analyses suggested 
+that the diagnostics get screwy with even rarer species.
+
+```{r data_wrangling}
+## Set min number of records
+min_N <- 3
+
+## unique locations for points
+vegdata %<>% mutate(PointLoc = str_split(PointID, "_")) %>% 
+  mutate(PointLoc = map_int(PointLoc, .f = function(.x) as.integer(.x[3])))
+
+## Clean up species names
+vegdata$TreeSpecies[is.na(vegdata$TreeSpecies)] <- "XX"
+vegdata %<>% filter(!is.na(TreeGenus)) ## get rid of unidentified trees as 
+                                        # we can't do anything with them
+
+# Make unique 5 letter species names for trees
+vegdata$HostID <- toupper(paste0(str_sub(vegdata$TreeGenus, 1, 3),
+                                  str_sub(vegdata$TreeSpecies, 1, 2)))
+
+vegdata_ord <- vegdata # a copy of the vegetation data without homogenization
+# of taxonomy with caterpillar data for use in ordination
+
+## Tidy up the deer data (make names same as other data sets)
+deer_abund %<>% rename("SiteID" = "site", "DeerCaptures" = "Deer_captures")
+
+## Make a data frame with per site summaries (means) of deer variables
+## Scat was repeated for each plant per point - taking unique values 
+## and taking average per site.
+deer_pres <- deer_browse %>% group_by(BlockID, SiteID, PointID, Year) %>% 
+    summarize(ScatPiles = unique(ScatPiles[!is.na(ScatPiles)])) %>% 
+    group_by(BlockID, SiteID) %>% summarize(ScatPiles = mean(ScatPiles)) 
+
+## Building a model of deer browse vs site with plant species as a random effect
+deer_browse_mod <- glmmTMB(Browsed/Plants ~ (1|BlockID) + (1|SiteID) + (1|PointID) + 
+                               (1|PlantID), family = binomial, 
+                           weights = Plants, data = deer_browse)
+
+# use model to predict probability that a generic seedling is browsed by deer
+deer_pres$BrowseProb <- plogis(fixef(deer_browse_mod)$cond + 
+                                  ranef(deer_browse_mod)$cond$BlockID[deer_pres$BlockID,] +
+                                  ranef(deer_browse_mod)$cond$SiteID[deer_pres$SiteID,])
+# add to data on deer capture from camera traps
+deer_pres %<>% left_join(deer_abund)
+
+## and integrate into site data
+sites %<>% rename("BrowseProb_old" = "BrowseProb") %>%  
+    left_join(., deer_pres, by=c("BlockID", "SiteID")) %>% 
+    relocate(ScatPiles:DeerCaptures, .after = "Hunted")
+
+# Add scaled versions of fragmentation and deer metrics  to sites
+sites %<>%
+  # Scale variables for use in models
+  mutate(
+      # Add scaled fragment size, centered around 500 ha
+      FragSize.c = as.vector(scale(FragSize, center = 500)),
+      
+      # Add scaled forest proportion, centered around 0.5
+      ForestProp1km.c = as.vector(scale(ForestProp1km, center = 0.5)),
+      
+      # Add scaled fragmentation ratio, centered around 1
+      FragRatio1km.c = as.vector(scale(FragRatio1km, center = 1)),
+      
+      # Log Fragment size, and scale, centered around 500 ha
+      FragSize.Logc = as.vector(scale(log10(FragSize), center = log10(500))),
+      
+      # Deer metrics
+      across(ScatPiles:ScatPredict, ~as.vector(scale(.x)), .names = "{.col}.c")
+  )
+
+## add number of plots at each site
+sites <- vegdata %>% group_by(SiteID) %>% 
+    summarise(nplots = n_distinct(PointLoc)) %>% 
+    left_join(sites)
+
+# Initial caterpillar data wrangling: add columns, filter rows
+cat <- catdata %>%
+    # Remove known bad host records
+    filter(is.na(BadHost)) %>%
+    # Add columns
+    mutate(
+        # Convert Year to a factor and set 2017 as the reference
+        # 2015 last for sum contrasts
+        Year = factor(Year, levels = c("2017", "2018", "2019", "2015")),
+        # Some useful columns
+      
+        # Unique Branch ID
+        BranchID = factor(paste(Year, PlotID, HostID, BranchNum, sep = "_")),
+        
+        # Make a binary specialist/generalist category based on wtMPD
+        Diet = factor(ifelse(wtMPD < 100, "Specialist", "Generalist")), 
+        
+        # Make a column showing whether a taxa is species-level or not
+        IsSpecies = ifelse(Species == "", FALSE, TRUE),
+        
+        # Predict the number of leaves from branch length/diam/species
+        # Don't predict for 2015, data is not reliable
+        Leaves.fit = ifelse(Year == 2015, NA, predict(branch.model, newdata = ., 
+            allow.new.levels = TRUE, type = "response")),
+        
+        # If leaves were counted, use that. Otherwise use the prediction
+        Leaves = ifelse(is.na(NumLeaves), Leaves.fit, NumLeaves),
+        
+        # Predict leaf area per leaf
+        Area = ifelse(Year == 2015, NA, exp(predict(area.model, newdata = ., 
+            allow.new.levels = TRUE))),
+        
+        # Calculate total leaf area
+        LeafArea.Log = log(Area * Leaves)
+        
+    ) %>% 
+  
+    # Join scaled fragmentation metrics from site data
+    left_join(sites %>% dplyr::select(SiteID, FragSize.c:ScatPredict.c), by = "SiteID") %>%
+    
+    # Select columns to keep & reorder
+    dplyr::select(Year, BlockID, SiteID, PlotID, FragSize.c:ScatPredict.c, 
+           HostID, BranchID, LeafArea.Log, CatID, IsSpecies, Diet, wtMPD, 
+        Records, Count)
+
+## summary of number of records per species
+abund <- cat %>% group_by(CatID) %>% summarize(n_records = sum(Count)) %>% 
+    filter(!is.na(CatID))
+
+cat %<>% left_join(abund, by = "CatID") ## add n_records column
+
+```
+
+
+Clean up diet classification using Mike and Dave's expertise
+
+```{r expert_diets}
+cat_diets <- dplyr::select(cat, CatID, Diet) %>% group_by(CatID) %>% 
+    summarize(Diet = unique(Diet))
+expert_diets <- dplyr::select(species_expert, SpeciesID, Specialist) %>% 
+    mutate(CatID = SpeciesID)
+
+## replace diet column with expert confirmed values
+diet_c <- left_join(cat_diets, expert_diets) %>% 
+    left_join(abund) %>% filter(!is.na(CatID))
+
+table(diet_c$Specialist, diet_c$Diet, diet_c$n_records > 4, useNA = "ifany")
+## When both agree, doesn't matter (110 species)
+##  When experts and observed diet disagree (48)
+##  if < 5 records, go with expert opinion (39)
+
+
+##  So all species with > 4 records go with data; all < 5 go with experts;
+##  If < 5 and no expert opinion, NA
+
+diet_c <- mutate(diet_c, 
+                 Diet2 = case_when(
+                     n_records >= 5 ~ Diet,
+                     n_records < 5 & Specialist == "yes" ~ "Specialist",
+                     n_records < 5 & Specialist == "no" ~ "Generalist", 
+                     .default = NA_character_))
+
+#diet_c$Diet[is.na(diet_c$Diet2)] <- NA
+diet_c$agree <- ifelse(diet_c$Diet == diet_c$Diet2 | 
+                           (is.na(diet_c$Diet) & is.na(diet_c$Diet2)), 1, 0)
+
+table(diet_c$agree, cut(diet_c$n_records, c(1:10,10000)), useNA = "ifany")
+## most disagreements are 1 or 2 records (> 4 is made to agree anyway)
+cat$Diet <- as.factor(diet_c$Diet2[match(as.character(cat$CatID), diet_c$CatID)])
+cat <- mutate(cat, Diet = relevel(Diet, "Specialist"))
+```
+
+# Data summaries
+
+Summary data for beginning of results
+
+
+```{r data_summary}
+cat %>% filter(Year != 2015) %>% 
+    summarize(n_branches = length(unique(BranchID)),
+              n_plantspecies = length(unique(HostID[!is.na(HostID)])),
+              n_cats = sum(Count),
+              n_catspecies = length(unique(CatID[!is.na(CatID)]))
+              ) %>% kable()
+
+cat %>% filter(Year != 2015) %>% group_by(Diet) %>% 
+    summarize(n_cats = sum(Count),
+              n_catspecies = length(unique(CatID[!is.na(CatID)]))
+              ) %>% kable()
+
+cat %>% filter(Year != 2015 & CatID == "LYMADI") %>% group_by(Year) %>% 
+    summarize(n_cats = sum(Count)) %>% kable()
+
+cat %>% filter(n_records >= min_N & Year != 2015 & 
+                   !(CatID == "LYMADI" & Year == 2017)) %>% 
+    group_by(Diet) %>% 
+    summarize(n_cats = sum(Count),
+              n_catspecies = length(unique(CatID[!is.na(CatID)]))
+    ) %>% kable()
+min_N ## min number of records for inclusion
+sp_list <- species %>% filter(Taxon == "Lepidoptera") %>%
+    dplyr::select(-SPID, -Infraspecific) %>% 
+    filter(!is.na(Records)) %>% arrange(Family, Genus, Species)
+
+```
+
+# Name homogenization
+
+Homogenize the species ID codes and taxonomic resolution of the caterpillar and tree datasets.
+
+```{r clean_speciesnames}
+# 1.  lump together similar tree species that can't be unambiguously identified 
+# 2. homogenize nomenclature for all data sets
+
+# this table defines the conversions
+treeGroups <- bind_rows(
+    data.frame(HostID = c('ACESA', 'ACENI'), HostID_c = "ACEBL"), # combine sugar and black maple
+    data.frame(HostID = c('BETAL', 'BETLE'), HostID_c = "BETBL"), # combine black and yellow birch
+    data.frame(HostID = c('CARGL', 'CARTO', 'CARXX', 'CAROV'), HostID_c = "CARYA"), #combine hickories
+    data.frame(HostID = c('CORCO', 'CORAM'), HostID_c = "CORYL"), # combine hazels
+    #data.frame(HostID = c('FRAAM'), HostID_c = "FRAXX"), # set white ash to unknown
+    data.frame(HostID = c('GAYBA', 'GAYXX'), HostID_c = "GAYLU"), # combine Huckleberries
+    data.frame(HostID = c('PRUVI', 'PRUXX'), HostID_c = "PRUSE"), # set all cherries to black cherry
+    data.frame(HostID = c('QUERU', 'QUEVE', 'QUECO'), HostID_c = "QUERE") # combine red oaks
+    #data.frame(HostID = c('RUBAL'), HostID_c = "RUBXX") 
+)
+
+## convert names 
+vegdata <- vegdata %>% mutate(
+    HostID = case_when(
+        HostID %in% treeGroups$HostID ~ 
+            plyr::mapvalues(HostID, treeGroups$HostID, treeGroups$HostID_c), 
+        TRUE ~ HostID)
+)
+
+cat2 <- cat %>% mutate(
+    HostID = case_when(
+        HostID %in% treeGroups$HostID ~ 
+            plyr::mapvalues(HostID, treeGroups$HostID, treeGroups$HostID_c), 
+        TRUE ~ HostID)
+)
+```
+
+# Calculate host density
+
+We now calculate the total density of hosts for each caterpillar species. 
+
+First we document the hosts that lep species are found on at least twice.
+Then we find the abundance of each of these hosts in each site, before adding
+the abundances of all host species within a caterpillars diet. Thus, if a 
+species eats all maples, we compute the abundance of maples at each site and 
+use that as the density of possible hosts of the species in the fragment.
+
+These densities can then be modeled as a function of fragmentation metrics 
+to assess whether there are fewer hosts for specialist, but not generalist,
+caterpillars in small forest fragments. 
+
+We do this at the scale of the nearest caterpillar plots
+
+```{r calc_host_density}
+## matrix of who eats who
+HostCatMat <- cat2 %>% filter(CatID != "") %>% count(CatID, HostID) %>% 
+    mutate(n = ifelse(n > 1, 1, 0)) %>% # don't count single records
+    spread(key = CatID, value = n, fill = 0)
+
+## abundance of each host species in vegetation plots
+HostAbund <- vegdata %>% group_by(BlockID, SiteID, HostID) %>% 
+    filter(is.na(Dead) | Dead =="no" & PointLoc < 5) %>%
+    count(.drop = FALSE)
+
+## Basal area of each species in adjacent vegetation plots
+HostBA <- vegdata %>% group_by(BlockID, SiteID, HostID) %>% 
+    filter(is.na(Dead) | Dead =="no" & PointLoc < 5) %>%
+    mutate(basal_area = ifelse(!is.na(DBH), pi*(0.5*DBH)^2, pi*0.05^2)) %>% 
+    summarise(BA = sum(basal_area))
+
+# Get rid of plants that aren't known hosts of any sampled caterpillars
+# and that never occurred in the plots
+HostCatMat <- HostCatMat[HostCatMat$HostID %in% unique(HostAbund$HostID),]
+HostAbund %<>% filter(HostID %in% HostCatMat$HostID)
+HostBA <- HostBA %>% filter(HostID %in% HostCatMat$HostID)
+
+all(HostCatMat$HostID %in% HostAbund$HostID)  # check all hosts names are listed
+all(HostAbund$HostID %in% HostCatMat$HostID )  # check all hosts names are listed
+all(HostBA$HostID %in% HostCatMat$HostID )  # check all hosts names are listed
+all(HostCatMat$HostID %in% HostBA$HostID )  # check all hosts names are listed
+
+## function to efficiently calculate the number of host plants for each moth species
+# uses matrix multiplication
+hostDensCalc <- function(host_abund, host_cat_mat){
+    site_host_mat <- host_abund %>% ungroup() %>% 
+        dplyr::select(c(SiteID, HostID, n)) %>%
+        pivot_wider(names_from = HostID, values_from = n, values_fill =  0)
+    ## make sure host-cat matrix and site-host matrices have hosts in same order
+    host_cat_mat %<>% arrange(as.character(HostID))     
+    site_host_mat %<>%  dplyr::select(SiteID, as.character(host_cat_mat$HostID))
+
+    stopifnot(all.equal(colnames(site_host_mat)[-1], 
+                        as.character(host_cat_mat$HostID)))     
+    
+    site_cat_mat <- as.matrix(dplyr::select(site_host_mat, -SiteID)) %*% 
+        as.matrix(dplyr::select(host_cat_mat, -HostID))
+    site_cat_mat <- bind_cols(SiteID = site_host_mat$SiteID, site_cat_mat)
+    site_cat_mat %<>% group_by(SiteID) %>% 
+        pivot_longer(cols = -SiteID, names_to = "CatID", values_to = "N")
+    return(site_cat_mat)
+}
+
+## 
+host_abund <- left_join(hostDensCalc(HostAbund, HostCatMat), sites) %>% 
+    mutate(nplots = 3)    # all sites have 3 plots in inner ring
+
+host_BA <- left_join(hostDensCalc(
+    rename(HostBA, "n" = "BA"), HostCatMat),
+    sites) %>% 
+    mutate(nplots = 3)    # all sites have 3 plots in inner ring
+
+## get diet data for each moth species and merge it into host density data sets
+#cat_diet <- cat %>% group_by(CatID) %>% summarise(Diet = unique(Diet))
+
+# merge in diet info to the host abundance and basal area data
+host_abund$Diet <- diet_c$Diet2[match(host_abund$CatID, diet_c$CatID)] 
+host_BA$Diet <- diet_c$Diet2[match(host_BA$CatID, diet_c$CatID)]
+```
+
+# Effects of fragment size on caterpillar density
+
+The central question of the paper is whether specialist abundance respond 
+more strongly to fragment area. Testing that here
+
+First step is calculating the sampled leaf area per plot
+
+
+```{r perplotsamplingeffort}
+## Total leaf area per site
+# Need to calculate leaf area carefully - take data for unique branch ids, then
+# transform to data scale, add them and transform back to log scale.
+LeafArea <- cat %>%filter(Year != 2015) %>% mutate(Year = droplevels(Year)) %>%
+    group_by(Year, BlockID, SiteID, BranchID) %>% 
+    summarize(LeafArea = mean(unique(LeafArea.Log), na.rm=TRUE)) %>% ## use mean for 3 cases with 2 (almost identical) numbers
+    group_by(Year, BlockID, SiteID) %>% 
+    summarise(LeafArea.Log = log(sum(exp(LeafArea), na.rm = TRUE)))
+
+# total leaf area of each branch - average across cat species because each 
+# branch may be repeated, but always the same value (barring typos and rounding
+# errors - hence the mean)
+LeafArea_branch <- cat %>%filter(Year != 2015) %>% mutate(Year = droplevels(Year)) %>%
+    group_by(Year, BlockID, SiteID, PlotID, BranchID) %>% 
+    summarize(LeafArea.Log = mean(unique(LeafArea.Log), na.rm=TRUE))
+
+```
+
+## Caterpillar abundance model
+
+Now we have the data for the model, we can start fitting it. 
+
+After playing around with the data a bunch, it seems like the model fits a lot 
+faster (unsurprisingly) and with better diagnostics, when we sum caterpillars
+per site x species combination rather than at a per branch level
+
+```{r cat_abund_data_prep}
+# number of caterpillars per species per site, per year.
+cat.pois_ag <- cat %>% filter(Year != 2015) %>% mutate(Year = droplevels(Year)) %>%  
+    group_by(Year,  BlockID, SiteID, CatID, Diet) %>%
+    summarize(Count = sum(Count)) %>% 
+    filter(!is.na(Diet)) %>% mutate(CatID = droplevels(CatID)) # drop NA
+
+## Need to add zeros - otherwise bias relationships by removing absences
+cat.pois_ag %<>% ungroup() %>%  
+    complete(Year, nesting(BlockID, SiteID), 
+             nesting(CatID, Diet), 
+             fill = list(Count = 0))
+
+# Add leaf area data
+cat.pois_ag %<>% left_join(LeafArea, by = c("Year", "BlockID", "SiteID")) 
+
+## Add site level covariates and abundance data    
+cat.pois_ag <- left_join(cat.pois_ag,
+        dplyr::select(sites, SiteID, FragSize:ScatPredict, FragSize.c:ScatPredict.c), 
+        by = c("SiteID")) %>% left_join(abund, by = "CatID")
+
+## Calculate DeerActivity Using the average of all types (after standardization)
+cat.pois_ag <-  rowwise(cat.pois_ag) %>% 
+    mutate(DeerPressure.c = mean(c(ScatPiles.c, BrowseProb.c, DeerCaptures.c)))
+
+```
+
+```{r Cat_diet_Frag_model}
+## Fit model
+
+## Lymantria seems to cause issues with diagnostics as do rare species (see below).
+## Running a model without LYMADI and without species with n_records < 3 (other
+## cut-offs give similar results.
+nb.abund_frag_deer <- glmmTMB::glmmTMB(
+    Count ~ offset(LeafArea.Log) + 
+        Year + Diet * (FragSize.c + DeerPressure.c) +
+        (1|BlockID/SiteID) + (1|CatID),
+    family = glmmTMB::nbinom2,
+    contrasts = list(Year = "contr.sum"),
+    control=glmmTMB::glmmTMBControl(parallel = parallel::detectCores(),
+                                    collect = FALSE),
+    data = subset(cat.pois_ag, n_records >= min_N & 
+                      !(CatID == "LYMADI" & Year == 2017 )))
+
+summary(nb.abund_frag_deer) 
+ 
+## Initial analyses suggested some variation in effects of fragmentation
+## among years
+nb.abund_frag_year <- glmmTMB::glmmTMB(
+    Count ~ offset(LeafArea.Log) +
+        Year * Diet * (FragSize.c + DeerPressure.c) +
+        (1|BlockID/SiteID) + (1|CatID),
+    family = glmmTMB::nbinom2,
+    contrasts = list(Year = "contr.sum"),
+    control=glmmTMB::glmmTMBControl(parallel = parallel::detectCores(),
+                                    collect = FALSE),
+    data = subset(cat.pois_ag, n_records >= min_N & !(CatID == "LYMADI" & Year ==2017) ))
+
+summary(nb.abund_frag_year)
+Anova(nb.abund_frag_year, 2) ## no variation in effects of fragmentation among years.
+
+```
+
+```{r cat_frag_abund_diagnostics}
+sim_res <- simulateResiduals(nb.abund_frag_deer, integerResponse = TRUE)
+plot(sim_res) ## some issues although the qqplot distributions look okay.
+## residuals ~ predictions quantiles not working properly.
+testQuantiles(sim_res) # seems okay
+testDispersion(sim_res) ## potentially problematic, but resolved by removing
+## Lymantria from 2017 and n < 3 species, without big changes in the results.
+## Suggests the problem is being over-emphasized by the diagnostics
+# sort(table(nb.abund_Frag$frame[outliers(sim_res), "CatID"])) ## nearly all lymantria
+#testOutliers(nb.abund_Frag, type = "bootstrap") ## potentially problematic, 
+# but resolved by removing Lymantria. I think this is a false positive.
+testZeroInflation(sim_res) # fine
+
+```
+
+A couple of tests are "significant" but the plots don't look bad once we remove
+Lymantria 2017 and rare (n < 3) species. 
+
+
+## Figures presenting model results
+
+```{r frag_deer_fig}
+## plot from model
+(deer_activity_plot <- 
+     (
+         data.frame(
+             ggpredict(nb.abund_frag_deer, 
+                       terms = c("FragSize.c [-1.3:1.3 by=0.05]", "Diet",
+                                 "DeerPressure.c [c(-1, 1)]" ))) %>% 
+             mutate(DeerPressure = factor(ifelse(facet == 1, "Low", "High"), 
+                                          levels = c("Low", "High")),
+                    FragSize = x * sd(sites$FragSize) + 500,
+                    DeerLab = "Deer activity") %>% 
+             ggplot(aes(x = FragSize, y = predicted, colour = group, 
+                        linetype = group, fill = group, 
+                        ymin = conf.low, ymax = conf.high)) +
+             ggh4x::facet_nested(~ DeerLab + DeerPressure , scales = "free_y",
+                                 nest_line = element_line()) +
+             geom_ribbon(colour = NA, alpha = 0.3) + geom_line() +
+             coord_trans(y = "log") +
+             labs(x = "Fragment area (ha)",
+                  y = expression(Caterpillar~density~(m^-2~leaf~area)),
+                  colour = "Diet", fill = "Diet", linetype = "Diet", title = "A") +
+             ggthemes::theme_tufte(base_size = 16)  + 
+             theme(ggh4x.facet.nestline = element_line(colour = "grey"))) +
+     (plot_model(nb.abund_frag_deer, transform = NULL,
+                 rm.terms=c("Year1", "Year2"),
+                 axis.labels = rev(c("Diet[G]", "FragArea","DeerActivity",
+                                     "Diet[G]:\nFragArea", "Diet[G]:\nDeerActivity")),
+                 vline.color = "grey70", colors = "black") + #ylim(0.5, 10) + 
+          ggthemes::theme_tufte(base_size = 16) + 
+          labs(title = NULL, y = "Estimate (log scale)") + ggtitle("B")))
+
+(deer_activity_plot <- deer_activity_plot + plot_layout(widths = c(2/3, 1/3)))
+
+ggsave(plot = deer_activity_plot, 
+       filename = "figures/Fig2_DeerMeanActivityPlot.pdf",
+    width = 8, height =5)
+```
+
+## Variation among species in fragmentation effects
+
+Exploring variation among caterpillar species in response to 
+fragmentation.
+
+```{r randomslope}
+## adding a random slope for frag size
+nb.abund_frag_deer_rc <- glmmTMB::glmmTMB(
+    Count ~ offset(LeafArea.Log) +  Year + 
+        Diet * (FragSize.c + DeerPressure.c) +
+        (1|BlockID/SiteID) + (FragSize.c|CatID), family = glmmTMB::nbinom2,
+    contrasts = list(Year = "contr.sum"), 
+    control=glmmTMB::glmmTMBControl(parallel = parallel::detectCores(),
+                                    collect = FALSE),
+    data = subset(cat.pois_ag, 
+                  n_records >=min_N & !(CatID == "LYMADI" & Year == 2017)))
+
+summary(nb.abund_frag_deer_rc) 
+anova(nb.abund_frag_deer, nb.abund_frag_deer_rc) ## improves the model substantially
+```
+
+
+
+```{r randomslope_plot}
+## plot random slopes for each species
+cat_reff <- tidy(nb.abund_frag_deer_rc, effects = "ran_vals") %>% 
+    filter(group == "CatID")
+cat_reff  <-  left_join(cat_reff, abund, by = c("level" = "CatID")) %>% 
+    rename("n" = "n_records")
+cat_reff$Diet <- as.factor(diet_c$Diet2[match(cat_reff$level, diet_c$CatID)])
+    
+cat_reff %<>% group_by(term, Diet) %>% 
+    mutate(qq = rank(estimate))
+
+cat_reff %<>% left_join(., 
+                       group_by(catdata, CatID) %>% 
+                           summarize(ScientificName = unique(ScientificName)),
+                       by = c("level" = "CatID"))
+
+## find main host for each caterpillar
+main_host <- cat %>% group_by(CatID, HostID) %>%
+    summarize(n = sum(Count, na.rm = TRUE)) %>%
+    slice(which.max(n)) %>% dplyr::select(-n)
+    
+## Sort hosts by importance for specialists
+specialist_importance <- filter(cat, !is.na(Diet)) %>% group_by(HostID, Diet) %>% 
+    summarise(n = sum(Count, na.rm = TRUE)) %>% 
+    pivot_wider(names_from = Diet, values_from = n, values_fill = 0) %>% 
+    left_join(filter(species, Taxon == "Plantae") %>% 
+                  select(PlantSciName = ScientificName, SpeciesID), 
+              by = c("HostID" = "SpeciesID")) %>% 
+    arrange(desc(Specialist)) %>% 
+    filter(HostID %in% main_host$HostID)
+
+main_host <- mutate(
+    main_host, 
+    PreferredHost = factor(HostID, 
+                           levels = specialist_importance$HostID,
+                           labels = specialist_importance$PlantSciName))
+
+cat_reff <- left_join(cat_reff, main_host, by = c("level" = "CatID")) 
+cat_reff %<>% mutate(ScientificName = gsub(" BOLD.*", "", ScientificName))
+cat_reff$ScientificName[cat_reff$ScientificName == "Coryphista meadii"] <- "Rheumaptera meadii"
+cat_reff %<>%  mutate(label = paste0(ScientificName, " [", n, "]"))
+cat_reff <- cat_reff %>%  droplevels()
+
+cat_reff$Diet <-  relevel(cat_reff$Diet, "Specialist")
+
+## intercept not very interesting
+blup_plot <- filter(cat_reff, term == "FragSize.c") %>% 
+    mutate(estimate_c = ifelse(Diet == "Specialist", 
+                               estimate +
+                                   fixef(nb.abund_frag_deer_rc)$cond["FragSize.c"],
+                               estimate +
+                                   fixef(nb.abund_frag_deer_rc)$cond["FragSize.c"] +    
+                        fixef(nb.abund_frag_deer_rc)$cond["DietGeneralist:FragSize.c"]
+                        )) %>% 
+    ggplot(aes(y = reorder_within(label, qq, term), x = estimate_c,
+               xmin = estimate_c - std.error, xmax = estimate_c + std.error,
+               color = PreferredHost, fill = PreferredHost, shape = PreferredHost)) +
+    geom_vline(xintercept = 0, col = "grey50", linetype = "dotted") +
+    geom_linerange(show.legend=FALSE) +
+    geom_point(size = 3) +
+    facet_wrap(~Diet, scales = "free_y") + 
+    labs(x = "Area sensitivity (log scale)",
+         y = "Lepidopteran species") +
+    scale_y_reordered() +
+    scale_x_continuous(breaks = seq(-1, 2, 1)) +
+    scale_color_viridis_d(name = "Preferred Host", direction=-1) +
+    scale_fill_viridis_d(name = "Preferred Host", direction=-1) +
+    scale_shape_manual(values=c(15:17, 25, 23, 0:6, 8:14), 
+                       name = "Preferred Host") + 
+    ggthemes::theme_tufte(base_size = 12) + 
+    theme(axis.text.y = element_text(face = "italic"),
+          legend.text = element_text(face = "italic"))
+        
+ggsave(blup_plot, file =  "figures/Fig3_speciesblups.pdf", height = 9)
+
+table(cat_reff$PreferredHost)
+
+
+filter(cat_reff, term == "FragSize.c" & Diet == "Specialist") %>% 
+    ggplot(aes(y = reorder_within(level, qq, term), x = estimate,
+                     xmin = estimate - std.error, xmax = estimate + std.error)) +
+    geom_vline(xintercept = 0, col = "grey50", linetype = "dotted") +
+    geom_pointinterval() +  scale_y_reordered() + 
+    facet_wrap(~PreferredHost, scale = "free") +
+    ggthemes::theme_tufte()
+
+
+## Is Epimecis having a disproportionate effect?
+nb.abund_Frag_rc_red <-
+    update(nb.abund_frag_deer_rc, 
+           data = subset(cat.pois_ag, 
+                         n_records >= 3 & 
+                             !(CatID %in% c("EPIMHO" , "CORYME")) &
+                             !(CatID == "LYMADI" & Year == 2017)))
+                               
+summary(nb.abund_Frag_rc_red) ## the lack of a difference is largely 
+## driven by Epimices  & Rheumaptera (specialists in small frags) 
+```
+
+Seems like there is considerable variation among lep species. In particular, 
+the specialists are a little right skewed. It is worth noticing that the species
+that respond most negatively to fragment area are Epimecis hortaria, which only
+ate Lindera benzoin in our data set and Coryphista meadii, a barberry specialist.
+Given Barberry is an invasive exotic, it represents a different mechanism. 
+Epimices is restricted to Lindera in our dataset, but according to Wagner it 
+eats Tulip tree (hence its common name Tulip-tree beauty). Perhaps this is an
+example of local specialization a la Fox & Morrow?
+
+# Alternative measures of deer effects
+
+```{r deer_effects}
+# measures of deer abundance
+## plot of correlations among measures of deer pressure
+sites2 <- rowwise(sites) %>% 
+    mutate(DeerPressure.c = mean(ScatPiles.c:DeerCaptures.c))
+with(sites2, cor.test(FragSize.c, DeerPressure.c))
+
+(deer_correlation_plot <- GGally::ggpairs(
+    dplyr::select(sites2, FragSize.c, DeerPressure.c,
+                  DeerCaptures.c, ScatPiles.c, BrowseProb.c), 
+    lower = list(continuous = "smooth"), 
+    columnLabels= c("Fragment Area", "Deer Activity", "Deer Captures", 
+                    "Scat Piles", "Browse Probability"), 
+    xlab = "Scaled value", ylab = "Scaled value") +
+    ggthemes::theme_tufte())
+
+ggsave(deer_correlation_plot, file = "figures/fig_s2_deercorrelations.pdf")
+
+with(sites, 
+     {
+         print(cor.test(FragSize.c, DeerCaptures.c))
+         print(cor.test(FragSize.c, ScatPiles.c))
+         print(cor.test(FragSize.c, BrowseProb.c))
+     })
+
+## deer camera captures
+nb.abund_deercaptures <- glmmTMB::glmmTMB(
+    Count ~ offset(LeafArea.Log) +  Year + 
+        Diet * (FragSize.c + DeerCaptures.c) +
+    (1|BlockID/SiteID) + (1|CatID), family = glmmTMB::nbinom2,
+    contrasts = list(Year = "contr.sum"),
+    control=glmmTMB::glmmTMBControl(parallel = 20, collect = FALSE),
+    data = subset(cat.pois_ag, 
+                  n_records >= min_N, !(CatID == "LYMADI" & Year == 2017)))
+summary(nb.abund_deercaptures)
+Anova(nb.abund_deercaptures, 2)
+
+nb.abund_scat <- glmmTMB::glmmTMB(
+    Count ~ offset(LeafArea.Log) +  Year + 
+        Diet * (FragSize.c + ScatPiles.c) +
+    (1|BlockID/SiteID) + (1|CatID), family = glmmTMB::nbinom2,
+    contrasts = list(Year = "contr.sum"),
+    control=glmmTMB::glmmTMBControl(parallel = 20, collect = FALSE),
+        data = subset(cat.pois_ag, 
+                  n_records >= min_N, !(CatID == "LYMADI" & Year == 2017)))
+summary(nb.abund_scat)
+Anova(nb.abund_scat, 2)
+
+nb.abund_browse <- glmmTMB::glmmTMB(
+    Count ~ offset(LeafArea.Log) +  Year + 
+        Diet * (FragSize.c + BrowseProb.c) +
+    (1|BlockID/SiteID) + (1|CatID), family = glmmTMB::nbinom2,
+    contrasts = list(Year = "contr.sum"),
+    control=glmmTMB::glmmTMBControl(parallel = 20, collect = FALSE),
+    data = subset(cat.pois_ag, 
+                  n_records >= min_N, !(CatID == "LYMADI" & Year == 2017)))
+summary(nb.abund_browse)
+Anova(nb.abund_browse, 2)
+
+deerbrowse_plot <- 
+        plot_model(nb.abund_browse, transform = NULL, 
+                   rm.terms=c("Year1", "Year2"),
+                   axis.labels = rev(c("Diet[G]", "FragArea","DeerBrowse",
+                                       "Diet[G]:\nFragArea", "Diet[G]:\nDeerBrowse")),
+                   vline.color = "grey70", colors = "black") + #ylim(0.5, 10) + 
+        ggthemes::theme_tufte() + labs(title = NULL, y = NULL)
+
+deercap_plot <- 
+        plot_model(nb.abund_deercaptures, transform = NULL, 
+                   rm.terms=c("Year1", "Year2"),
+                   axis.labels = rev(c("Diet[G]", "FragArea","DeerCaptures",
+                                       "Diet[G]:\nFragArea", "Diet[G]:\nDeerCaptures")),
+                   vline.color = "grey70", colors = "black") +# ylim(0.5, 10) + 
+        ggthemes::theme_tufte() + labs(title = NULL, y = NULL)
+
+deerscat_plot <- 
+        plot_model(nb.abund_scat, transform = NULL,
+                   rm.terms=c("Year1", "Year2"),
+                   axis.labels = rev(c("Diet[G]", "FragArea","DeerScat",
+                                       "Diet[G]:\nFragArea", "Diet[G]:\nDeerScat")),
+                   vline.color = "grey70", colors = "black") + #ylim(0.5, 10) + 
+        ggthemes::theme_tufte() + labs(title = NULL, y = NULL)
+
+
+## Using the average of all types (after standardization)
+((deerbrowse_plot | deercap_plot | deerscat_plot )| 
+    (plot_model(nb.abund_frag_deer, transform = NULL, 
+                rm.terms=c("Year1", "Year2"), 
+                axis.labels = rev(c("Diet[G]", "FragArea","DeerActivity",
+                                    "Diet[G]:\nFragArea", "Diet[G]:\nDeerActivity")),
+                vline.color = "grey70",  colors = "black") +
+         ggthemes::theme_tufte() + labs(title = NULL, y = NULL))) +
+    plot_annotation(tag_levels = "A")
+## Paterns are similar in all cases
+
+deer_comp_plot <- (deerbrowse_plot | deercap_plot | deerscat_plot ) +
+        ggthemes::theme_tufte() + labs(title = NULL, y = NULL) +
+    plot_annotation(tag_levels = "A")
+
+ggsave(deer_comp_plot, file = "figures/fig_s3_deercompplot.pdf",
+       width = 6, height = 2.5)
+```
+
+The effects of deer activity are a little complicated 
+
+- Mean deer activity measure has no effect on either diet.
+- Specialists don't respond to any metric.
+- Generalists are affected in opposite directions by deer captures (positively!?)
+and deer browse (negatively, albeit marginally non-significantly). HOwever
+the effects are small, and they are not/barely signicant. Probably not a real
+effect.
+
+
+# Species richness and model
+
+```{r species_richness}
+richness.all <- cat %>% filter(Year != 2015 & n_records > min_N) %>% 
+    mutate(Year = droplevels(Year)) %>%  
+    # left_join(abund, by = "CatID") %>% 
+    filter(!is.na(Diet) ) %>% mutate(CatID = droplevels(CatID)) %>% 
+    group_by(BlockID, SiteID, Year, Diet, CatID) %>% 
+    summarize(Count = sum(Count, na.rm = TRUE)) %>%
+    ungroup() %>% 
+    complete(Year, nesting(BlockID, SiteID), Diet,
+         fill = list(Count = 0)) %>% 
+    group_by(BlockID, SiteID, Year, Diet) %>% 
+    summarize(species = n_distinct(CatID), 
+              shannon = diversity(Count, index = "shannon"),
+              invsimpsons = diversity(Count, index = "simpson")) %>%  
+    left_join(LeafArea, by = c("Year", "BlockID", "SiteID")) %>% 
+    left_join(
+        dplyr::select(sites, SiteID, FragSize:ScatPredict, FragSize.c:ScatPredict.c), 
+        by = c("SiteID")) %>% 
+    mutate(Diet = relevel(Diet, "Specialist"),
+           DeerPressure.c = mean(c(DeerCaptures.c, ScatPiles.c, BrowseProb.c)))
+    
+mod_rich_all <- glmmTMB(species ~ #offset(LeafArea.Log) + 
+                            Year +
+                        Diet * (FragSize.c + DeerPressure.c) +
+                        (1|BlockID/SiteID), 
+                    family = nbinom2, 
+                    contrasts = list(Year = "contr.sum"), 
+                    data = richness.all)
+
+summary(mod_rich_all)
+Anova(mod_rich_all)
+
+
+mod_shan <- glmmTMB(shannon ~ offset(LeafArea.Log) + Year +
+                        Diet * (FragSize.c + BrowseProb.c) +
+                        (1|BlockID/SiteID), 
+                    family = gaussian, 
+                    contrasts = list(Year = "contr.sum"), 
+                    data = richness.all)
+
+summary(mod_shan)
+Anova(mod_shan)
+
+mod_simp <- glmmTMB(invsimpsons ~ offset(LeafArea.Log) + Year +
+                        Diet * (FragSize.c + DeerPressure.c) +
+                        (1|BlockID/SiteID), 
+                    family = gaussian, 
+                    contrasts = list(Year = "contr.sum"), 
+                    data = richness.all)
+
+summary(mod_simp)
+Anova(mod_simp)
+```
+
+
+No clear relationship between fragment size and species richness of either 
+specialists or generalists. A slight trend that diversity of generalists decreased
+in heavily browsed sites.
+
+
+# Host abundance model
+
+## Model of host abundance vs. fragment size. 
+
+Model of potential hostplants in the adjacent vegetation plots (inner ring).
+
+
+```{r TreeModel}
+n_distinct(host_abund$CatID) ## number of species
+
+## Filter out species with unknown diets and make specialists the reference 
+host_abund %<>% filter(!is.na(Diet)) %>% 
+    mutate(Diet = factor(Diet, levels = c("Specialist", "Generalist")))
+
+host_BA %<>%   filter(!is.na(Diet)) %>% 
+    mutate(Diet = factor(Diet, levels = c("Specialist", "Generalist")))
+
+host_BA <- mutate(
+    host_BA, 
+    DeerPressure.c = mean(c(DeerCaptures.c, ScatPiles.c, BrowseProb.c)),
+    plotarea = nplots * 0.01)
+
+## Add number of records of each species
+host_abund %<>% left_join(abund, by = "CatID")
+host_BA %<>% left_join(abund, by = "CatID")
+summary(host_BA)
+# ## Fit the model of abundance - using basal area in paper, but results similar
+# mod_hosts <- glmmTMB(N ~ Diet * FragSize.c +
+#                                offset(log(nplots)) +
+#                            #   (1|CatID) +
+#                                (1|BlockID/SiteID),
+#                            ziformula = ~ 1 + Diet * FragSize.c,
+#                            family = nbinom2,
+#                            data = subset(host_abund,
+#                                          n_records >=  min_N),
+#                            control=glmmTMB::glmmTMBControl(parallel = 20))
+
+#summary(mod_hosts) ## No effects on the mean (but there are differences
+# in zero inflation)
+
+## Model based on basal area instead of abundance
+mod_hosts <- glmmTMB(N ~ Diet * (FragSize.c + DeerPressure.c) +
+                         offset(log(nplots)) + 
+                         (1|CatID) +  ## removed because diagnostics better without
+                         (1|BlockID/SiteID), 
+                     ziformula = ~ 1 + Diet * (FragSize.c + DeerPressure.c),
+                     #dispformula = ~ Diet,
+                         family = ziGamma(link = "log"),
+                     data = subset(host_BA, 
+                                   n_records >= min_N ),
+                     control=glmmTMB::glmmTMBControl(
+                         parallel = parallel::detectCores()))
+summary(mod_hosts) ## No effects on the mean 
+## but there are differences in the zero-inflation component - 
+## fewer zeros in large fragments for both diet breadths
+
+plot_model(mod_hosts, vline.color = "grey", rm.terms = "Diet [Generalist]") + 
+    ggthemes::theme_tufte() 
+## worth noting that the slope is smaller for generalists, even though
+## there is not significant interaction between slope and diet.
+
+
+```
+
+### Diagnostics for host-abundance model
+
+```{r host_model_diags}
+sim_res_host <- simulateResiduals(mod_hosts)
+plot(sim_res_host) ## ok. Some deviations, that go away with removing
+# # random effect of caterpillar ID
+hist(sim_res_host) ## 
+ testDispersion(sim_res_host) ## highly UNDER dispersed with CatID random effect
+ testCategorical(sim_res_host, mod_hosts$frame$Diet) ## more variance for generalists
+ plot(sim_res_host, form = mod_hosts$frame$FragSize.c)  ## looks ok
+```
+
+Diagnostics are okay once we remove the random effect for caterpillar ID. 
+Removing it gets rid of the underdispersion and 
+
+Not perfect, but visually acceptable and no issues with dispersion etc. 
+
+Note we need the zero-inflation term (really zero hurdle) because there are 
+zeros are outside the support for a gamma distribution.
+
+After we do that looks like 
+
+1. there are no effects of fragmentation for either diet group on host abundance
+
+2.  Probability that a host is *absent* decreases with fragment size 
+for specialist *and* generalists. There is no effect of diet x fragsize.
+
+This is slightly complex to interpret, but most reasonable explanation is that 
+larger forest fragments are more likely to contain hosts for caterpillars, 
+but conditional on them containing them there is no effect on their abundance. 
+
+
+## Deer effects on host abundance
+
+Would be useful to also look at the effects of deer on host abundance.
+
+```{r deer_host_models}
+
+mod_hosts_dc <- glmmTMB(N ~ Diet * (FragSize.c + DeerCaptures.c) +
+                                 offset(log(nplots)) + 
+                                 (1|BlockID/SiteID), 
+                             ziformula = ~ 1 + Diet * (FragSize.c + DeerCaptures.c),
+                             family = ziGamma(link = "log"),
+                             data = subset(host_BA, 
+                                           n_records > min_N),
+                             control=glmmTMB::glmmTMBControl(parallel = 20))
+
+mod_hosts_sp <- glmmTMB(N ~ Diet * (FragSize.c + ScatPiles.c) +
+                                 offset(log(nplots)) + 
+                                 (1|BlockID/SiteID), 
+                             ziformula = ~ 1 + Diet * (FragSize.c + ScatPiles),
+                             family = ziGamma(link = "log"),
+                             data = subset(host_BA, 
+                                           n_records > min_N),
+                             control=glmmTMB::glmmTMBControl(parallel = 20))
+
+mod_hosts_bp <- glmmTMB(N ~ Diet * (FragSize.c + BrowseProb.c) +
+                                 offset(log(nplots)) + 
+                                 (1|BlockID/SiteID), 
+                             ziformula = ~ 1 + Diet * (FragSize.c + BrowseProb.c),
+                             family = ziGamma(link = "log"),
+                             data = subset(host_BA, 
+                                           n_records > min_N),
+                             control=glmmTMB::glmmTMBControl(parallel = 20)) 
+summary(mod_hosts_dc)
+Anova(mod_hosts_dc, 2) ## no effect of deer captures
+# 
+summary(mod_hosts_sp)
+Anova(mod_hosts_sp, 2) ## negative effect of scat piles on both specialists
+# # that disappears for generalists. Frag size effect stays
+# 
+summary(mod_hosts_bp) ##deer browse increases zeros for specialists, not generalists.
+Anova(mod_hosts_bp)
+
+# ## Looking at all 3 together.
+summary(mod_hosts_dc)$coef
+summary(mod_hosts_sp)$coef
+summary(mod_hosts_bp)$coef
+# 
+# 
+# ## now visually
+plot_model(mod_hosts_dc, transform = NULL, rm.terms = "Diet [Generalist]")| 
+     plot_model(mod_hosts_sp, transform = NULL, rm.terms = "Diet [Generalist]")|
+     plot_model(mod_hosts_bp, transform = NULL, rm.terms = "Diet [Generalist]")
+# 
+# ## Both diet groups are positively associated with fragment size.
+# ## Specialists decrease with deer activity; not generalists
+# 
+```
+
+
+
+## Plot of host abundance vs. fragment area and deer activity
+
+Plots showing relationships between fragment area and combined host densities
+
+```{r hostdensity_plot}
+
+#########################
+## Plot for paper
+#########################
+hostprob_plot <- ggpredict(mod_hosts, 
+          c("FragSize.c", "Diet", "DeerPressure.c [-1, 1]"),
+          condition = c(nplots = 1),
+          type = "zi_prob") %>% data.frame() %>% 
+    mutate(
+        across(c(predicted, conf.low, conf.high), ~ 1 - .x),
+        FragSize = x * sd(sites$FragSize) + 500,
+        DeerAbund = factor(ifelse(facet == 1, "High", "Low"),
+                           levels = c("Low", "High")),
+        DeerLab = "Deer Activity") %>% 
+    ggplot(aes(x = FragSize, y = predicted,
+               colour = group, fill = group, linetype = group,
+               ymin = conf.low, ymax = conf.high))  +
+    geom_ribbon(alpha = 0.3, colour = NA) + geom_line() +
+    ggh4x::facet_nested( ~ DeerLab + DeerAbund,
+                        nest_line = element_line())  +
+    labs(x = NULL,
+         y = expression(paste("Pr (Host occurrence)")),
+         colour = "Diet", fill = "Diet", linetype = "Diet", title = "A") +
+        scale_x_continuous(breaks =  seq(200, 800, 200)) +
+    ggthemes::theme_tufte()  +
+    theme(ggh4x.facet.nestline = element_line(colour = "grey") )
+
+hostdens_plot <- ggpredict(mod_hosts, 
+          c("FragSize.c", "Diet", "DeerPressure.c [-1, 1]"),
+          type = "fe") %>% data.frame() %>% 
+    mutate(
+        FragSize = x * sd(sites$FragSize) + 500,
+        DeerAbund = factor(ifelse(facet == 1, "High", "Low"),
+                           levels = c("Low", "High")),
+        DeerLab = "Deer Activity",
+        Diet = ifelse(group == 1, "Specialist", "Generalist")) %>% 
+    ggplot(aes(x = FragSize, y = predicted,
+               colour = group, fill = group, linetype = group,
+               ymin = conf.low, ymax = conf.high))  +
+    geom_ribbon(alpha = 0.3, colour = NA) + geom_line() +
+    facet_grid(Diet ~ DeerAbund) +
+    labs(x = "Fragment area (ha)",
+         y = expression(paste("Total host basal area (", ha^-1, ")")),
+         colour = "Diet", fill = "Diet", linetype = "Diet", title = "C") +
+    coord_trans(y = "log10") +
+    scale_x_continuous(breaks =  seq(200, 800, 200)) +
+    scale_y_continuous(breaks = c(c(50, 100, 150, 200),
+                                  c(2000, 4000, 6000, 8000))) +
+    ggthemes::theme_tufte() +
+    theme(strip.text = element_blank())
+
+
+## Tree plots
+hostabund_treeplot <- plot_model(mod_hosts, transform = NULL, 
+                                 rm.terms = "Diet [Generalist]") 
+xlabs <- c("FragArea", "DeerActivity", 
+           "Diet[G]: \n FragArea", "Diet[G]: \n DeerActivity") 
+
+hostabund_treeplot <- 
+    (filter(hostabund_treeplot$data, wrap.facet == "zero_inflated") %>% 
+         ggplot(aes(x = term, y = -estimate, 
+                    ymin = -conf.low, ymax = -conf.high#, 
+                    #colour = ifelse(estimate > 0, "N", "P")
+         )) +
+         geom_hline(yintercept = 0, colour = "grey") +
+         geom_pointinterval(size = 4) +
+         labs(x = NULL, y = "Pr(Host occurrence) (log odds scale)",  title = "B") + 
+         scale_colour_discrete(guide = NULL) +
+         scale_x_discrete(labels = rev(xlabs)) +
+         coord_flip() + ggthemes::theme_tufte() +
+     theme(plot.title = element_text(hjust = -0.1))) /
+
+    (filter(hostabund_treeplot$data, wrap.facet == "conditional") %>% 
+         ggplot(aes(x = term, y = estimate, 
+                    ymin = conf.low, ymax = conf.high #, 
+                    #colour = ifelse(estimate > 0, "N", "P")
+                    )) +
+         geom_hline(yintercept = 0, colour = "grey") +
+         geom_pointinterval(size = 4) +
+         labs(x = NULL, 
+              y = "Conditional abundance (log scale)", 
+              title = "D") + 
+         scale_colour_discrete(guide = NULL) +
+         scale_x_discrete(labels = rev(xlabs)) +
+         coord_flip() + ggthemes::theme_tufte() + 
+         theme(plot.title = element_text(hjust = -0.1)))
+
+
+(hostabundplot <- 
+    ((hostprob_plot / hostdens_plot +
+    plot_layout(guides = "collect"))| hostabund_treeplot) +
+    plot_layout(widths = c(2, 1.2))
+    )
+
+ggsave(hostabundplot, file = "figures/Figure_5_host_abund_plot.pdf", 
+       width = 7, height = 5)
+tidy(mod_hosts)
+
+```
+
+# Vegetation ordination 
+
+Visualising the relationship between fragment area and vegetation composition.
+We extract the data for the inner vegetation plots and use NMDS to 
+find the main axes of variation (we use 3 because stress was >0.2 when we use
+only 2).
+
+
+```{r veg_ordination, echo = F, comment = ""}
+# converting vegetation data to matrix for ordination
+vegmat <-  vegdata_ord %>% 
+    filter(is.na(Dead) | Dead == "no" & PointLoc < 5) %>% 
+    group_by(across(BlockID:PointID), PointLoc, HostID) %>%  tally() %>%
+    pivot_wider(names_from = HostID, values_from = n, values_fill = 0)
+
+vegmat %<>% left_join(dplyr::select(sites, SiteID, ScatPiles.c:DeerCaptures.c)) %>% 
+    rowwise() %>% 
+    mutate(DeerPressure.c = mean(ScatPiles.c, BrowseProb.c, DeerCaptures.c)) %>% 
+    relocate(ScatPiles.c:DeerPressure.c, .after = ScatPredict)
+
+# Subset to species with at least 5 individuals
+speciesSelect <- function(n) names(n)[colSums(n) > 4]  
+sp_keep <- 
+    vegmat %>% ungroup() %>% dplyr::select(-(BlockID:PointLoc)) %>% speciesSelect()
+
+
+test <- sapply(1:3, function(k){
+    
+    it <- vegmat %>%  ungroup() %>% 
+        dplyr::select(all_of(sp_keep)) %>% 
+        metaMDS(., k = k, distance = "bray", trymax = 50, maxit = 1000, trace=0,
+          parallel = parallel::detectCores())
+    it$stress
+})
+test ## check how stress changes with number of axes 
+## 3 axes is kinda acceptable. Others are not
+
+# run NMDS ordination
+ord <- vegmat %>%  ungroup() %>% 
+  dplyr::select(all_of(sp_keep)) %>% 
+  metaMDS(., k = 3, distance = "bray", trymax = 50, maxit = 1000, trace = 0,
+          parallel = parallel::detectCores())
+
+# Add linear vector for fragmentation and deer variables
+print(ord)
+plot(ord)
+stressplot(ord)
+
+## Model vegetation composition as function of deer and fragsize variables
+ord_frag <- envfit(ord ~ log(FragSize) + DeerPressure.c,
+                   strata = vegmat$BlockID,  choices = c(1:3),  
+                   data = vegmat, perm = 999)
+print(ord_frag) ## both appear important
+
+## checking another way
+library(gamm4)
+vegmat <- bind_cols(vegmat, scores(ord)$sites)
+gammmod <- gamm4(log(FragSize) ~  s(NMDS1, NMDS2, NMDS3), 
+                 random = ~(1|BlockID), data = vegmat)
+
+summary(gammmod$gam) ## v. strong relationship
+
+gammmod2 <- gamm4(DeerPressure.c ~  s(NMDS1, NMDS2, NMDS3), 
+                 random = ~(1|BlockID), data = vegmat)
+
+summary(gammmod2$gam) ## also strong relationship
+
+## Deer captures and fragment area are consistently good explanatory variables
+
+## Trying another algorithm, adonis
+vegmat2 <- vegmat %>%  ungroup() %>% dplyr::select(all_of(sp_keep))
+
+adonis_mod <- adonis2(vegmat2 ~ log(FragSize)  + splines::ns(DeerPressure.c, df=3),
+                      data = vegmat, 
+                      strata = vegmat$BlockID)
+
+adonis_mod2 <- adonis2(vegmat2 ~ log(FragSize)  + DeerCaptures.c, data = vegmat, 
+                      strata = vegmat$BlockID)
+print(adonis_mod) ## note relatioinship is non-linear, like envfit does.
+print(adonis_mod2)
+
+## consistent results effect of fragment area and deer acitivty being correlated
+## with vegetation when we allow for non-linearities.
+
+```
+
+## Ordination plot
+Develop a plot of the ordination
+
+```{r ordplots}
+##
+env_df <- fortify(ord_frag) %>% 
+    mutate(Label = c("Fragment Area", "Deer Pressure"))
+                
+ord_site <- bind_cols(filter(fortify(ord), score == "sites"),
+                      dplyr::select(vegmat, BlockID:DeerPressure.c))
+
+ord_mod_fragsize <- gamm4(log(FragSize) ~ s(NMDS1, NMDS2, k = 50, bs="ts"), 
+                          random = ~(1|BlockID), 
+                         data = ord_site)
+
+ord_mod_deer <- gamm4(BrowseProb ~ s(NMDS1, NMDS2, k = 50, bs="ts"), 
+                      random = ~(1|BlockID), 
+                         data = ord_site)
+
+preddat <- expand_grid(NMDS1 = seq(-1, 1.5, 0.05), NMDS2 = seq(-1, 1.3, 0.05))  
+preddat$fragsize_pred <- exp(predict(ord_mod_fragsize$gam, newdata = preddat))
+preddat$browse_pred <- predict(ord_mod_deer$gam, newdata = preddat)
+
+#preddat %<>%  mutate(NMDS1 = NMDS1, NMDS2 = NMDS2)
+
+ordspec_df <- filter(fortify(ord),  score == "species")
+ordspec_df$FragCentroid <- exp(predict(ord_mod_fragsize$gam, newdata = ordspec_df))
+ordspec_df$DeerCentroid <- predict(ord_mod_deer$gam, newdata = ordspec_df)
+
+ordspec_df %<>%  left_join(group_by(vegdata_ord, Tree, TreeFamily, HostID) %>%
+                              summarize(N = sum(is.na(Dead) | Dead == "no")), 
+                          by = c("label" = "HostID"))
+
+propspec <- cat %>% 
+    filter(n_records >= min_N) %>% 
+    group_by(HostID, Diet) %>% 
+    summarise(Count = sum(Count, na.rm = TRUE)) %>% 
+    filter(!is.na(Diet)) %>% 
+    pivot_wider(names_from = Diet, values_from = Count, values_fill = 0) %>% 
+    mutate(PropSpecialist = Specialist/(Generalist + Specialist),
+           Total = Specialist + Generalist)
+
+ordspec_df %<>% 
+    left_join(propspec,by = c("label" = "HostID")) %>% 
+    mutate(Total.c = replace_na(Total, 1)) #
+# set plants with no values as 1 to allow plotting (but in smallest text).
+
+## the axes have ended up aligning so largest fragments are nearer the origin.
+## which is less intuitive. Fliping both x and y axes for clarity.
+## 
+
+ord_plot <- ggplot(mapping = aes(x = -NMDS1, y = -NMDS2)) + 
+    geom_contour(data = preddat, aes(z = fragsize_pred), color = "grey") +
+    metR::geom_text_contour(data = preddat, aes(z = fragsize_pred), color = "grey", 
+                            stroke = 0.15) +
+    geom_text_repel(data = ordspec_df, max.overlaps = 20,
+                    aes(label = label, colour = PropSpecialist, size = Total.c)) +
+    # geom_segment(data = env_df, aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), 
+    #              arrow = arrow(length = unit(0.01, "npc"))) +
+    #geom_label_repel(data = env_df, aes(label = Label)) +
+    scale_size_binned(trans = "log10", range = c(1.5, 5)) +
+    scale_colour_viridis_c(end = 0.9, trans = "sqrt") +  ggthemes::theme_tufte() +
+    labs(x = "NMDS1", y = "NMDS2", colour = "Pr(Specialists)", size = "Total\n caterpillars")
+
+ord_plot
+
+ggsave(ord_plot, filename = "figures/fig4_fragmentation_ordination.pdf")
+
+## Pull out deer sensitivity and fragment sensitivity of each tree species
+ordspec_df %>% arrange(FragCentroid) %>% 
+    dplyr::select(-starts_with("NMDS"), -score, -Total) %>% 
+    mutate(FragCentroid = round(FragCentroid), 
+           Generalist = replace_na(Generalist, 0), 
+           Specialist = replace_na(Specialist, 0)) %>% 
+    relocate(c(FragCentroid, DeerCentroid), .before = Generalist) %>% 
+    write.csv(., file = "tables/HostSpeciesSummaries.csv")
+
+```
+
+
+# Session Info
+
+```{r session_information}
+sessionInfo()
+```
