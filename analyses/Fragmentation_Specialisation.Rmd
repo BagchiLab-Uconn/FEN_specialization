@@ -4,9 +4,7 @@ author: "James Mickley & Robert Bagchi"
 date: '`r format(Sys.Date(), "%B %d, %Y")`'
 graphics: yes
 output:
-  pdf_document:
-    toc: yes
-  github_document:
+   github_document:
     toc: yes
     toc_depth: 5
     pandoc_args: --webtex
