@@ -502,7 +502,7 @@ nb.abund_frag_deer <- glmmTMB::glmmTMB(
                       !(CatID == "LYMADI" & Year == 2017 )))
 
 summary(nb.abund_frag_deer) 
- 
+Anova(nb.abund_frag_deer, 2) 
 ## Initial analyses suggested some variation in effects of fragmentation
 ## among years
 nb.abund_frag_year <- glmmTMB::glmmTMB(
@@ -943,7 +943,7 @@ mod_hosts <- glmmTMB(N ~ Diet * (FragSize.c + DeerPressure.c) +
 summary(mod_hosts) ## No effects on the mean 
 ## but there are differences in the zero-inflation component - 
 ## fewer zeros in large fragments for both diet breadths
-
+Anova(mod_hosts, 2) ## note very informative with hurdle models
 plot_model(mod_hosts, vline.color = "grey", rm.terms = "Diet [Generalist]") + 
     ggthemes::theme_tufte() 
 ## worth noting that the slope is smaller for generalists, even though

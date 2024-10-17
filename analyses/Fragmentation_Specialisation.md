@@ -1,7 +1,7 @@
 Fragmentation effects on Specialists
 ================
 James Mickley & Robert Bagchi
-June 05, 2024
+October 14, 2024
 
   
 
@@ -560,7 +560,22 @@ summary(nb.abund_frag_deer)
 ```
 
 ``` r
- 
+Anova(nb.abund_frag_deer, 2) 
+## Analysis of Deviance Table (Type II Wald chisquare tests)
+## 
+## Response: Count
+##                        Chisq Df Pr(>Chisq)    
+## Year                100.3415  2    < 2e-16 ***
+## Diet                  0.6829  1    0.40859    
+## FragSize.c            1.5225  1    0.21724    
+## DeerPressure.c        0.2934  1    0.58803    
+## Diet:FragSize.c       5.7871  1    0.01614 *  
+## Diet:DeerPressure.c   0.0888  1    0.76568    
+## ---
+## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+```
+
+``` r
 ## Initial analyses suggested some variation in effects of fragmentation
 ## among years
 nb.abund_frag_year <- glmmTMB::glmmTMB(
@@ -597,24 +612,24 @@ summary(nb.abund_frag_year)
 ## 
 ## Conditional model:
 ##                                      Estimate Std. Error z value Pr(>|z|)    
-## (Intercept)                         -14.79671    0.32782  -45.14  < 2e-16 ***
-## Year1                                -0.84656    0.15061   -5.62  1.9e-08 ***
-## Year2                                -0.05214    0.12898   -0.40  0.68602    
-## DietGeneralist                        0.20195    0.34667    0.58  0.56020    
-## FragSize.c                            0.33629    0.14484    2.32  0.02024 *  
-## DeerPressure.c                        0.06848    0.15334    0.45  0.65520    
-## Year1:DietGeneralist                  0.52086    0.17233    3.02  0.00251 ** 
-## Year2:DietGeneralist                  0.10535    0.15259    0.69  0.48993    
-## Year1:FragSize.c                     -0.04672    0.15403   -0.30  0.76167    
-## Year2:FragSize.c                     -0.03884    0.13441   -0.29  0.77259    
-## Year1:DeerPressure.c                  0.07055    0.15674    0.45  0.65264    
-## Year2:DeerPressure.c                  0.05514    0.13867    0.40  0.69088    
+## (Intercept)                         -14.79674    0.32782  -45.14  < 2e-16 ***
+## Year1                                -0.84660    0.15061   -5.62  1.9e-08 ***
+## Year2                                -0.05215    0.12898   -0.40  0.68596    
+## DietGeneralist                        0.20199    0.34667    0.58  0.56012    
+## FragSize.c                            0.33627    0.14484    2.32  0.02025 *  
+## DeerPressure.c                        0.06849    0.15334    0.45  0.65514    
+## Year1:DietGeneralist                  0.52089    0.17233    3.02  0.00251 ** 
+## Year2:DietGeneralist                  0.10536    0.15259    0.69  0.48990    
+## Year1:FragSize.c                     -0.04674    0.15403   -0.30  0.76155    
+## Year2:FragSize.c                     -0.03884    0.13441   -0.29  0.77260    
+## Year1:DeerPressure.c                  0.07057    0.15674    0.45  0.65254    
+## Year2:DeerPressure.c                  0.05512    0.13867    0.40  0.69101    
 ## DietGeneralist:FragSize.c            -0.26339    0.11834   -2.23  0.02603 *  
-## DietGeneralist:DeerPressure.c        -0.01367    0.11907   -0.11  0.90862    
-## Year1:DietGeneralist:FragSize.c       0.15639    0.17668    0.89  0.37607    
-## Year2:DietGeneralist:FragSize.c      -0.08509    0.15894   -0.54  0.59242    
-## Year1:DietGeneralist:DeerPressure.c   0.23362    0.17683    1.32  0.18644    
-## Year2:DietGeneralist:DeerPressure.c  -0.09250    0.16035   -0.58  0.56401    
+## DietGeneralist:DeerPressure.c        -0.01370    0.11907   -0.12  0.90842    
+## Year1:DietGeneralist:FragSize.c       0.15640    0.17668    0.89  0.37602    
+## Year2:DietGeneralist:FragSize.c      -0.08509    0.15894   -0.54  0.59239    
+## Year1:DietGeneralist:DeerPressure.c   0.23360    0.17683    1.32  0.18648    
+## Year2:DietGeneralist:DeerPressure.c  -0.09247    0.16035   -0.58  0.56414    
 ## ---
 ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 ```
@@ -625,17 +640,17 @@ Anova(nb.abund_frag_year, 2) ## no variation in effects of fragmentation among y
 ## 
 ## Response: Count
 ##                            Chisq Df Pr(>Chisq)    
-## Year                     98.5934  2  < 2.2e-16 ***
-## Diet                      0.5916  1  0.4418025    
-## FragSize.c                1.5912  1  0.2071591    
-## DeerPressure.c            0.3122  1  0.5763114    
-## Year:Diet                25.4592  2  2.962e-06 ***
-## Year:FragSize.c           2.1205  2  0.3463757    
-## Year:DeerPressure.c      14.3319  2  0.0007724 ***
-## Diet:FragSize.c           5.9520  1  0.0147003 *  
-## Diet:DeerPressure.c       0.1051  1  0.7458220    
-## Year:Diet:FragSize.c      0.7840  2  0.6757005    
-## Year:Diet:DeerPressure.c  1.7756  2  0.4115696    
+## Year                     98.5950  2  < 2.2e-16 ***
+## Diet                      0.5917  1  0.4417442    
+## FragSize.c                1.5909  1  0.2072037    
+## DeerPressure.c            0.3121  1  0.5763653    
+## Year:Diet                25.4623  2  2.958e-06 ***
+## Year:FragSize.c           2.1205  2  0.3463607    
+## Year:DeerPressure.c      14.3324  2  0.0007722 ***
+## Diet:FragSize.c           5.9519  1  0.0147011 *  
+## Diet:DeerPressure.c       0.1052  1  0.7456439    
+## Year:Diet:FragSize.c      0.7842  2  0.6756451    
+## Year:Diet:DeerPressure.c  1.7753  2  0.4116233    
 ## ---
 ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 ```
@@ -2266,7 +2281,7 @@ composition. We extract the data for the inner vegetation plots and use
 NMDS to find the main axes of variation (we use 3 because stress was
 \>0.2 when we use only 2).
 
-    [1] 0.3862998 0.2754171 0.2098238
+    [1] 0.3862998 0.2754088 0.2098244
 
     Call:
     metaMDS(comm = ., distance = "bray", k = 3, trymax = 50, trace = 0,      maxit = 1000, parallel = parallel::detectCores()) 
@@ -2277,10 +2292,10 @@ NMDS to find the main axes of variation (we use 3 because stress was
     Distance: bray 
 
     Dimensions: 3 
-    Stress:     0.2098239 
+    Stress:     0.2098256 
     Stress type 1, weak ties
-    Best solution was repeated 2 times in 64 tries
-    The best solution was from try 29 (random start)
+    Best solution was repeated 2 times in 32 tries
+    The best solution was from try 23 (random start)
     Scaling: centring, PC rotation, halfchange scaling 
     Species: expanded scores based on 'wisconsin(sqrt(.))' 
 
@@ -2290,8 +2305,8 @@ NMDS to find the main axes of variation (we use 3 because stress was
     ***VECTORS
 
                       NMDS1    NMDS2    NMDS3     r2 Pr(>r)    
-    log(FragSize)  -0.73651 -0.67563  0.03294 0.1541  0.001 ***
-    DeerPressure.c  0.63390  0.54159 -0.55213 0.0491  0.031 *  
+    log(FragSize)  -0.73363 -0.67604  0.06895 0.1556  0.001 ***
+    DeerPressure.c  0.63220  0.51754 -0.57660 0.0488  0.020 *  
     ---
     Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
     Blocks:  strata 
@@ -2306,18 +2321,18 @@ NMDS to find the main axes of variation (we use 3 because stress was
 
     Parametric coefficients:
                 Estimate Std. Error t value Pr(>|t|)    
-    (Intercept)   4.5990     0.1353   33.99   <2e-16 ***
+    (Intercept)   4.5968     0.1368   33.59   <2e-16 ***
     ---
     Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 
     Approximate significance of smooth terms:
                            edf Ref.df     F p-value    
-    s(NMDS1,NMDS2,NMDS3) 28.99  28.99 4.277  <2e-16 ***
+    s(NMDS1,NMDS2,NMDS3) 30.13  30.13 4.401  <2e-16 ***
     ---
     Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 
-    R-sq.(adj) =  0.231   
-    lmer.REML = 1538.5  Scale est. = 1.7088    n = 436
+    R-sq.(adj) =  0.239   
+    lmer.REML =   1535  Scale est. = 1.6843    n = 436
 
     Family: gaussian 
     Link function: identity 
@@ -2327,16 +2342,16 @@ NMDS to find the main axes of variation (we use 3 because stress was
 
     Parametric coefficients:
                 Estimate Std. Error t value Pr(>|t|)
-    (Intercept)  0.05062    0.21796   0.232    0.816
+    (Intercept)   0.0507     0.2181   0.232    0.816
 
     Approximate significance of smooth terms:
-                          edf Ref.df     F  p-value    
-    s(NMDS1,NMDS2,NMDS3) 29.9   29.9 2.139 0.000596 ***
+                           edf Ref.df     F  p-value    
+    s(NMDS1,NMDS2,NMDS3) 30.35  30.35 2.121 0.000556 ***
     ---
     Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 
-    R-sq.(adj) =  0.047   
-    lmer.REML = 852.54  Scale est. = 0.31658   n = 436
+    R-sq.(adj) =  0.0491   
+    lmer.REML = 852.32  Scale est. = 0.31572   n = 436
     Permutation test for adonis under reduced model
     Terms added sequentially (first to last)
     Blocks:  strata 
@@ -2346,7 +2361,7 @@ NMDS to find the main axes of variation (we use 3 because stress was
     adonis2(formula = vegmat2 ~ log(FragSize) + splines::ns(DeerPressure.c, df = 3), data = vegmat, strata = vegmat$BlockID)
                                          Df SumOfSqs      R2       F Pr(>F)    
     log(FragSize)                         1    3.633 0.02348 10.6881  0.001 ***
-    splines::ns(DeerPressure.c, df = 3)   3    4.589 0.02966  4.5002  0.001 ***
+    splines::ns(DeerPressure.c, df = 3)   3    4.589 0.02966  4.5002  0.002 ** 
     Residual                            431  146.490 0.94686                   
     Total                               435  154.712 1.00000                   
     ---
@@ -2360,7 +2375,7 @@ NMDS to find the main axes of variation (we use 3 because stress was
     adonis2(formula = vegmat2 ~ log(FragSize) + DeerCaptures.c, data = vegmat, strata = vegmat$BlockID)
                     Df SumOfSqs      R2       F Pr(>F)    
     log(FragSize)    1    3.633 0.02348 10.6027  0.001 ***
-    DeerCaptures.c   1    2.724 0.01761  7.9509  0.001 ***
+    DeerCaptures.c   1    2.724 0.01761  7.9509  0.002 ** 
     Residual       433  148.355 0.95891                   
     Total          435  154.712 1.00000                   
     ---
@@ -2472,10 +2487,10 @@ sessionInfo()
 ## tzcode source: internal
 ## 
 ## attached base packages:
-## [1] stats     graphics  grDevices datasets  utils     methods   base     
+## [1] stats     graphics  grDevices utils     datasets  methods   base     
 ## 
 ## other attached packages:
-##  [1] tidytext_0.4.2      ggeffects_1.6.0     car_3.1-2          
+##  [1] tidytext_0.4.2      ggeffects_1.6.0.2   car_3.1-2          
 ##  [4] carData_3.0-5       knitr_1.47          broom.mixed_0.2.9.5
 ##  [7] DHARMa_0.4.6        performance_0.11.0  sjPlot_2.8.16      
 ## [10] gamm4_0.2-6         mgcv_1.9-1          nlme_3.1-164       
@@ -2489,38 +2504,43 @@ sessionInfo()
 ## [34] ggplot2_3.5.1       tidyverse_2.0.0    
 ## 
 ## loaded via a namespace (and not attached):
-##   [1] RColorBrewer_1.1-3   rstudioapi_0.16.0    datawizard_0.10.0   
-##   [4] farver_2.1.2         nloptr_2.0.3         rmarkdown_2.27      
-##   [7] ragg_1.3.2           vctrs_0.6.5          memoise_2.0.1       
-##  [10] minqa_1.2.7          effectsize_0.8.8     htmltools_0.5.8.1   
-##  [13] distributional_0.4.0 haven_2.5.4          broom_1.0.6         
-##  [16] janeaustenr_1.0.0    sjmisc_2.8.10        parallelly_1.37.1   
-##  [19] tokenizers_0.3.0     plyr_1.8.9           cachem_1.1.0        
-##  [22] TMB_1.9.11           mime_0.12            lifecycle_1.0.4     
-##  [25] iterators_1.0.14     pkgconfig_2.0.3      gap_1.5-3           
-##  [28] sjlabelled_1.2.0     R6_2.5.1             fastmap_1.2.0       
-##  [31] rbibutils_2.2.16     future_1.33.2        shiny_1.8.1.1       
-##  [34] digest_0.6.35        numDeriv_2016.8-1.1  colorspace_2.1-0    
-##  [37] furrr_0.3.1          metR_0.15.0          rprojroot_2.0.4     
-##  [40] textshaping_0.4.0    qgam_1.3.4           SnowballC_0.7.1     
-##  [43] labeling_0.4.3       fansi_1.0.6          timechange_0.3.0    
-##  [46] abind_1.4-5          compiler_4.4.0       bit64_4.0.5         
-##  [49] withr_3.0.0          doParallel_1.0.17    backports_1.5.0     
-##  [52] ggstats_0.6.0        highr_0.11           MASS_7.3-60.2       
-##  [55] sjstats_0.19.0       tools_4.4.0          httpuv_1.6.15       
-##  [58] glue_1.7.0           promises_1.3.0       grid_4.4.0          
-##  [61] checkmate_2.3.1      cluster_2.1.6        generics_0.1.3      
-##  [64] isoband_0.2.7        gtable_0.3.5         tzdb_0.4.0          
-##  [67] data.table_1.15.4    hms_1.1.3            utf8_1.2.4          
-##  [70] foreach_1.5.2        pillar_1.9.0         vroom_1.6.5         
-##  [73] later_1.3.2          splines_4.4.0        renv_1.0.7          
-##  [76] bit_4.0.5            tidyselect_1.2.1     xfun_0.44           
-##  [79] stringi_1.8.4        yaml_2.3.8           boot_1.3-30         
-##  [82] evaluate_0.23        codetools_0.2-20     cli_3.6.2           
-##  [85] systemfonts_1.1.0    xtable_1.8-4         parameters_0.21.7   
-##  [88] Rdpack_2.6           munsell_0.5.1        Rcpp_1.0.12         
-##  [91] globals_0.16.3       parallel_4.4.0       bayestestR_0.13.2   
-##  [94] gap.datasets_0.0.6   listenv_0.9.1        viridisLite_0.4.2   
-##  [97] ggthemes_5.1.0       scales_1.3.0         insight_0.19.11     
-## [100] crayon_1.5.2         rlang_1.1.3
+##   [1] RColorBrewer_1.1-3   rstudioapi_0.16.0    jsonlite_1.8.8      
+##   [4] datawizard_0.10.0    estimability_1.5.1   farver_2.1.2        
+##   [7] nloptr_2.0.3         rmarkdown_2.27       ragg_1.3.2          
+##  [10] vctrs_0.6.5          memoise_2.0.1        minqa_1.2.7         
+##  [13] effectsize_0.8.8     htmltools_0.5.8.1    haven_2.5.4         
+##  [16] distributional_0.4.0 curl_5.2.1           broom_1.0.6         
+##  [19] janeaustenr_1.0.0    sjmisc_2.8.10        parallelly_1.37.1   
+##  [22] StanHeaders_2.32.9   tokenizers_0.3.0     plyr_1.8.9          
+##  [25] cachem_1.1.0         emmeans_1.10.2       TMB_1.9.11          
+##  [28] mime_0.12            iterators_1.0.14     lifecycle_1.0.4     
+##  [31] pkgconfig_2.0.3      gap_1.5-3            sjlabelled_1.2.0    
+##  [34] R6_2.5.1             fastmap_1.2.0        shiny_1.8.1.1       
+##  [37] rbibutils_2.2.16     future_1.33.2        digest_0.6.35       
+##  [40] numDeriv_2016.8-1.1  colorspace_2.1-0     furrr_0.3.1         
+##  [43] metR_0.15.0          rprojroot_2.0.4      textshaping_0.4.0   
+##  [46] qgam_1.3.4           SnowballC_0.7.1      labeling_0.4.3      
+##  [49] fansi_1.0.6          timechange_0.3.0     abind_1.4-5         
+##  [52] compiler_4.4.0       bit64_4.0.5          withr_3.0.0         
+##  [55] doParallel_1.0.17    backports_1.5.0      inline_0.3.19       
+##  [58] ggstats_0.6.0        highr_0.11           QuickJSR_1.2.0      
+##  [61] pkgbuild_1.4.4       MASS_7.3-60.2        sjstats_0.19.0      
+##  [64] loo_2.7.0            tools_4.4.0          httpuv_1.6.15       
+##  [67] glue_1.7.0           promises_1.3.0       grid_4.4.0          
+##  [70] checkmate_2.3.1      cluster_2.1.6        generics_0.1.3      
+##  [73] isoband_0.2.7        gtable_0.3.5         tzdb_0.4.0          
+##  [76] data.table_1.15.4    hms_1.1.3            utf8_1.2.4          
+##  [79] foreach_1.5.2        pillar_1.9.0         vroom_1.6.5         
+##  [82] later_1.3.2          splines_4.4.0        bit_4.0.5           
+##  [85] tidyselect_1.2.1     gridExtra_2.3        V8_5.0.0            
+##  [88] stats4_4.4.0         xfun_0.44            matrixStats_1.3.0   
+##  [91] rstan_2.32.6         stringi_1.8.4        yaml_2.3.8          
+##  [94] boot_1.3-30          evaluate_0.23        codetools_0.2-20    
+##  [97] cli_3.6.2            RcppParallel_5.1.7   systemfonts_1.1.0   
+## [100] parameters_0.21.7    xtable_1.8-4         Rdpack_2.6          
+## [103] munsell_0.5.1        Rcpp_1.0.12          globals_0.16.3      
+## [106] coda_0.19-4.1        parallel_4.4.0       bayestestR_0.13.2   
+## [109] gap.datasets_0.0.6   listenv_0.9.1        viridisLite_0.4.2   
+## [112] ggthemes_5.1.0       mvtnorm_1.2-5        scales_1.3.0        
+## [115] insight_0.20.5       crayon_1.5.2         rlang_1.1.3
 ```
