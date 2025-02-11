@@ -72,7 +72,8 @@ sites <- read.csv("data/sites.csv", stringsAsFactors = TRUE)
 
 # Get the species data
 species <- read.csv("data/species.csv", stringsAsFactors = FALSE)
-species_expert <- read.csv("data/diet_categorization_June2023_RB.csv", stringsAsFactors = FALSE)
+species_expert <- read.csv("data/diet_categorization_June2023_RB.csv", 
+                           stringsAsFactors = FALSE)
 
 # Read in the model to predict # of leaves from branch measurements
 branch.model <- readRDS("data/branchmeasure-model.rds")
@@ -104,6 +105,7 @@ scat density).
 
 Note, I set the minimum abundance here as 3 because intial analyses suggested 
 that the diagnostics get screwy with even rarer species.
+
 
 ```{r data_wrangling}
 ## Set min number of records
@@ -231,7 +233,8 @@ cat %<>% left_join(abund, by = "CatID") ## add n_records column
 ```
 
 
-Clean up diet classification using Mike and Dave's expertise
+Clean up diet classification using expertise from Mike, Dave,
+Sam Jaffe & Jason Dambroskie.
 
 ```{r expert_diets}
 cat_diets <- dplyr::select(cat, CatID, Diet) %>% group_by(CatID) %>% 
@@ -307,10 +310,11 @@ sp_list <- species %>% filter(Taxon == "Lepidoptera") %>%
 
 Homogenize the species ID codes and taxonomic resolution of the caterpillar and tree datasets.
 
-```{r clean_speciesnames}
-# 1.  lump together similar tree species that can't be unambiguously identified 
-# 2. homogenize nomenclature for all data sets
+1.  lump together similar tree species that can't be unambiguously identified 
+2. homogenize nomenclature for all data sets
 
+
+```{r clean_speciesnames}
 # this table defines the conversions
 treeGroups <- bind_rows(
     data.frame(HostID = c('ACESA', 'ACENI'), HostID_c = "ACEBL"), # combine sugar and black maple
@@ -414,9 +418,6 @@ host_BA <- left_join(hostDensCalc(
     sites) %>% 
     mutate(nplots = 3)    # all sites have 3 plots in inner ring
 
-## get diet data for each moth species and merge it into host density data sets
-#cat_diet <- cat %>% group_by(CatID) %>% summarise(Diet = unique(Diet))
-
 # merge in diet info to the host abundance and basal area data
 host_abund$Diet <- diet_c$Diet2[match(host_abund$CatID, diet_c$CatID)] 
 host_BA$Diet <- diet_c$Diet2[match(host_BA$CatID, diet_c$CatID)]
@@ -428,7 +429,6 @@ The central question of the paper is whether specialist abundance respond
 more strongly to fragment area. Testing that here
 
 First step is calculating the sampled leaf area per plot
-
 
 ```{r perplotsamplingeffort}
 ## Total leaf area per site
@@ -503,6 +503,7 @@ nb.abund_frag_deer <- glmmTMB::glmmTMB(
 
 summary(nb.abund_frag_deer) 
 Anova(nb.abund_frag_deer, 2) 
+
 ## Initial analyses suggested some variation in effects of fragmentation
 ## among years
 nb.abund_frag_year <- glmmTMB::glmmTMB(
@@ -513,7 +514,8 @@ nb.abund_frag_year <- glmmTMB::glmmTMB(
     contrasts = list(Year = "contr.sum"),
     control=glmmTMB::glmmTMBControl(parallel = parallel::detectCores(),
                                     collect = FALSE),
-    data = subset(cat.pois_ag, n_records >= min_N & !(CatID == "LYMADI" & Year ==2017) ))
+    data = subset(cat.pois_ag, n_records >= min_N & 
+                      !(CatID == "LYMADI" & Year ==2017) ))
 
 summary(nb.abund_frag_year)
 Anova(nb.abund_frag_year, 2) ## no variation in effects of fragmentation among years.
@@ -537,7 +539,6 @@ testZeroInflation(sim_res) # fine
 
 A couple of tests are "significant" but the plots don't look bad once we remove
 Lymantria 2017 and rare (n < 3) species. 
-
 
 ## Figures presenting model results
 
