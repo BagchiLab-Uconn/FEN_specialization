@@ -1,3 +1,5 @@
+## Code to build the map
+
 library(tidyverse)
 library(sf)
 library(rnaturalearth)
@@ -5,23 +7,25 @@ library(ggspatial)
 library(png) # Needed for compass rose
 library(grid) # Needed for compass rose
 library(tidyterra)
+library(patchwork)
 
 # State of connecticut
-ct.shp <- st_read("../Fragment-Spatial/data/shapefiles/ct2010_state_wgs84.shp")
+ct.shp <- st_read("data/shapefiles/ct2010_state_wgs84.shp")
 
 # State of connecticut, with counties
-ct.counties.shp <- st_read("../Fragment-Spatial/data/shapefiles/ct2010_counties_wgs84.shp")
+ct.counties.shp <- st_read("data/shapefiles/ct2010_counties_wgs84.shp")
 
 # FEN site polygons and metadata
-fen.shp <- st_read("../Fragment-Spatial/data/shapefiles/ct2015_FEN_core_wgs84.shp")
+fen.shp <- st_read("data/shapefiles/ct2015_FEN_core_wgs84.shp")
 
 # Core forest for the whole state of connecticut
-ct.coreforest.shp <- st_read("../Fragment-Spatial/data/shapefiles/ct2015_core_wgs84.shp")
+ct.coreforest.shp <- st_read("data/shapefiles/ct2015_core_wgs84.shp")
 
 # Import compass rose image and convert to a raster-based grob for ggplot
-compass <- readPNG("../Fragment-Spatial/data/compass_rose.png") %>% rasterGrob()
+compass <- readPNG("data/compass_rose.png") %>% rasterGrob()
 
 sf_use_s2(FALSE)
+
 # Edit the map of core forest in connecticut
 ct.coreforest.shp <- ct.coreforest.shp %>% 
     
@@ -96,14 +100,12 @@ plot_map <- ct.map +
   #   geom_sf(data = ct.shp, color = "black", fill = NA) + 
    
     # Add points for all of the FEN sites
-    geom_point(aes(x = Longitude, y = Latitude, color = BlockID, 
+    geom_point(aes(x = Longitude, y = Latitude, fill = BlockID, 
                    shape = SizeClass), data = fen.shp, size = 3, alpha = 0.9) +
-    guides(colour = "none") +
-    scale_shape_manual(values = c(15, 16, 17), name = "Fragment size class") +
+    guides(fill = "none") +
+    scale_shape_manual(values = c(22, 21, 24), name = "Fragment size class") +
     theme(legend.position = "top") + 
     guides(shape = guide_legend(title.position = "top", title.hjust = 0.5))
-
-
 
 
 # Find the vertices for an equilateral triangle with centroid [0,0]
@@ -354,7 +356,7 @@ plot_layout <- ggplot() +
     # Only showing a subset of the arrows using filter()
     geom_segment(data = arrow_locs, 
                  aes(x = x, y = y, xend = xend, yend = yend), 
-                 size = 0.6,
+                 linewidth = 0.6,
                  arrow = arrow(ends = "both", type = "closed", 
                                length = unit(0.15, "cm"))) +
      
@@ -370,11 +372,12 @@ plot_layout <- ggplot() +
         axis.ticks = element_blank()
     )
 
-library(patchwork)
+
 sitemap <- (plot_map + plot_layout) +
     plot_annotation(tag_levels = "A") +
     plot_layout(widths = c(1.5, 1))
 
+sitemap
 
-ggsave(sitemap, file = "figures/sitemap.pdf", 
+ggsave(sitemap, file = "figures/Fig2_sitemap.pdf", 
        height = 4, width = 7)
