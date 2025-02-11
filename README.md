@@ -1,5 +1,6 @@
 # Effect of fragmentation on dietary specialist caterpillars
 
+DOI: 10.5281/zenodo.14847790
 
 Analysis of Differential effects on specialist vs generalist caterpillar
 abundance, richness, and diversity.
