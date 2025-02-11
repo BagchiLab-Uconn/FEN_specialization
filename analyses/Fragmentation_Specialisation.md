@@ -1,7 +1,7 @@
 Fragmentation effects on Specialists
 ================
 James Mickley & Robert Bagchi
-October 14, 2024
+February 10, 2025
 
   
 
@@ -174,7 +174,8 @@ abund <- cat %>% group_by(CatID) %>% summarize(n_records = sum(Count)) %>%
 cat %<>% left_join(abund, by = "CatID") ## add n_records column
 ```
 
-Clean up diet classification using Mike and Dave’s expertise
+Clean up diet classification using expertise from Mike, Dave, Sam Jaffe
+& Jason Dambroskie.
 
 ``` r
 cat_diets <- dplyr::select(cat, CatID, Diet) %>% group_by(CatID) %>% 
@@ -313,10 +314,11 @@ sp_list <- species %>% filter(Taxon == "Lepidoptera") %>%
 Homogenize the species ID codes and taxonomic resolution of the
 caterpillar and tree datasets.
 
-``` r
-# 1.  lump together similar tree species that can't be unambiguously identified 
-# 2. homogenize nomenclature for all data sets
+1.  lump together similar tree species that can’t be unambiguously
+    identified
+2.  homogenize nomenclature for all data sets
 
+``` r
 # this table defines the conversions
 treeGroups <- bind_rows(
     data.frame(HostID = c('ACESA', 'ACENI'), HostID_c = "ACEBL"), # combine sugar and black maple
@@ -437,9 +439,6 @@ host_BA <- left_join(hostDensCalc(
     rename(HostBA, "n" = "BA"), HostCatMat),
     sites) %>% 
     mutate(nplots = 3)    # all sites have 3 plots in inner ring
-
-## get diet data for each moth species and merge it into host density data sets
-#cat_diet <- cat %>% group_by(CatID) %>% summarise(Diet = unique(Diet))
 
 # merge in diet info to the host abundance and basal area data
 host_abund$Diet <- diet_c$Diet2[match(host_abund$CatID, diet_c$CatID)] 
@@ -576,6 +575,7 @@ Anova(nb.abund_frag_deer, 2)
 ```
 
 ``` r
+
 ## Initial analyses suggested some variation in effects of fragmentation
 ## among years
 nb.abund_frag_year <- glmmTMB::glmmTMB(
@@ -586,7 +586,8 @@ nb.abund_frag_year <- glmmTMB::glmmTMB(
     contrasts = list(Year = "contr.sum"),
     control=glmmTMB::glmmTMBControl(parallel = parallel::detectCores(),
                                     collect = FALSE),
-    data = subset(cat.pois_ag, n_records >= min_N & !(CatID == "LYMADI" & Year ==2017) ))
+    data = subset(cat.pois_ag, n_records >= min_N & 
+                      !(CatID == "LYMADI" & Year ==2017) ))
 
 summary(nb.abund_frag_year)
 ##  Family: nbinom2  ( log )
@@ -612,24 +613,24 @@ summary(nb.abund_frag_year)
 ## 
 ## Conditional model:
 ##                                      Estimate Std. Error z value Pr(>|z|)    
-## (Intercept)                         -14.79674    0.32782  -45.14  < 2e-16 ***
-## Year1                                -0.84660    0.15061   -5.62  1.9e-08 ***
-## Year2                                -0.05215    0.12898   -0.40  0.68596    
-## DietGeneralist                        0.20199    0.34667    0.58  0.56012    
-## FragSize.c                            0.33627    0.14484    2.32  0.02025 *  
-## DeerPressure.c                        0.06849    0.15334    0.45  0.65514    
-## Year1:DietGeneralist                  0.52089    0.17233    3.02  0.00251 ** 
-## Year2:DietGeneralist                  0.10536    0.15259    0.69  0.48990    
-## Year1:FragSize.c                     -0.04674    0.15403   -0.30  0.76155    
-## Year2:FragSize.c                     -0.03884    0.13441   -0.29  0.77260    
-## Year1:DeerPressure.c                  0.07057    0.15674    0.45  0.65254    
-## Year2:DeerPressure.c                  0.05512    0.13867    0.40  0.69101    
-## DietGeneralist:FragSize.c            -0.26339    0.11834   -2.23  0.02603 *  
-## DietGeneralist:DeerPressure.c        -0.01370    0.11907   -0.12  0.90842    
-## Year1:DietGeneralist:FragSize.c       0.15640    0.17668    0.89  0.37602    
-## Year2:DietGeneralist:FragSize.c      -0.08509    0.15894   -0.54  0.59239    
-## Year1:DietGeneralist:DeerPressure.c   0.23360    0.17683    1.32  0.18648    
-## Year2:DietGeneralist:DeerPressure.c  -0.09247    0.16035   -0.58  0.56414    
+## (Intercept)                         -14.79673    0.32782  -45.14  < 2e-16 ***
+## Year1                                -0.84664    0.15061   -5.62 1.89e-08 ***
+## Year2                                -0.05212    0.12898   -0.40   0.6862    
+## DietGeneralist                        0.20200    0.34668    0.58   0.5601    
+## FragSize.c                            0.33626    0.14484    2.32   0.0203 *  
+## DeerPressure.c                        0.06845    0.15334    0.45   0.6553    
+## Year1:DietGeneralist                  0.52096    0.17233    3.02   0.0025 ** 
+## Year2:DietGeneralist                  0.10530    0.15259    0.69   0.4901    
+## Year1:FragSize.c                     -0.04678    0.15403   -0.30   0.7613    
+## Year2:FragSize.c                     -0.03883    0.13441   -0.29   0.7727    
+## Year1:DeerPressure.c                  0.07052    0.15674    0.45   0.6528    
+## Year2:DeerPressure.c                  0.05516    0.13867    0.40   0.6908    
+## DietGeneralist:FragSize.c            -0.26335    0.11834   -2.23   0.0261 *  
+## DietGeneralist:DeerPressure.c        -0.01368    0.11907   -0.11   0.9085    
+## Year1:DietGeneralist:FragSize.c       0.15647    0.17668    0.89   0.3758    
+## Year2:DietGeneralist:FragSize.c      -0.08510    0.15894   -0.54   0.5923    
+## Year1:DietGeneralist:DeerPressure.c   0.23364    0.17683    1.32   0.1864    
+## Year2:DietGeneralist:DeerPressure.c  -0.09251    0.16035   -0.58   0.5640    
 ## ---
 ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 ```
@@ -640,17 +641,17 @@ Anova(nb.abund_frag_year, 2) ## no variation in effects of fragmentation among y
 ## 
 ## Response: Count
 ##                            Chisq Df Pr(>Chisq)    
-## Year                     98.5950  2  < 2.2e-16 ***
-## Diet                      0.5917  1  0.4417442    
-## FragSize.c                1.5909  1  0.2072037    
-## DeerPressure.c            0.3121  1  0.5763653    
-## Year:Diet                25.4623  2  2.958e-06 ***
-## Year:FragSize.c           2.1205  2  0.3463607    
-## Year:DeerPressure.c      14.3324  2  0.0007722 ***
-## Diet:FragSize.c           5.9519  1  0.0147011 *  
-## Diet:DeerPressure.c       0.1052  1  0.7456439    
-## Year:Diet:FragSize.c      0.7842  2  0.6756451    
-## Year:Diet:DeerPressure.c  1.7753  2  0.4116233    
+## Year                     98.5960  2  < 2.2e-16 ***
+## Diet                      0.5916  1  0.4417834    
+## FragSize.c                1.5913  1  0.2071434    
+## DeerPressure.c            0.3120  1  0.5764785    
+## Year:Diet                25.4606  2   2.96e-06 ***
+## Year:FragSize.c           2.1205  2  0.3463777    
+## Year:DeerPressure.c      14.3311  2  0.0007728 ***
+## Diet:FragSize.c           5.9507  1  0.0147113 *  
+## Diet:DeerPressure.c       0.1052  1  0.7457034    
+## Year:Diet:FragSize.c      0.7848  2  0.6754407    
+## Year:Diet:DeerPressure.c  1.7759  2  0.4115070    
 ## ---
 ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 ```
@@ -1732,7 +1733,21 @@ summary(mod_hosts) ## No effects on the mean
 ``` r
 ## but there are differences in the zero-inflation component - 
 ## fewer zeros in large fragments for both diet breadths
+Anova(mod_hosts, 2) ## note very informative with hurdle models
+## Analysis of Deviance Table (Type II Wald chisquare tests)
+## 
+## Response: N
+##                       Chisq Df Pr(>Chisq)    
+## Diet                40.8397  1  1.652e-10 ***
+## FragSize.c           0.1274  1     0.7211    
+## DeerPressure.c       0.0032  1     0.9550    
+## Diet:FragSize.c      0.4602  1     0.4975    
+## Diet:DeerPressure.c  0.6757  1     0.4111    
+## ---
+## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+```
 
+``` r
 plot_model(mod_hosts, vline.color = "grey", rm.terms = "Diet [Generalist]") + 
     ggthemes::theme_tufte() 
 ```
